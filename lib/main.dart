@@ -90,6 +90,15 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> {
   String _searchQuery = '';
   String _statusFilter = 'All';
+  String _sortFilter = 'Newest first';
+  String _dateFilter = 'All time';
+
+  static const _dateFilters = [
+    'All time',
+    'Today',
+    'Last 7 days',
+    'Last 30 days',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -106,20 +115,36 @@ class _OrdersScreenState extends State<OrdersScreen> {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final documents = snapshot.data!.docs.where((document) {
-            final data = document.data();
-            final customer = data['customer'] as Map<String, dynamic>? ?? {};
-            final query = _searchQuery.trim().toLowerCase();
-            final searchable = [
-              data['orderNumber'],
-              customer['name'],
-              customer['email'],
-              customer['phone'],
-            ].whereType<String>().join(' ').toLowerCase();
-            final status = data['status'] as String? ?? 'pending';
-            return (query.isEmpty || searchable.contains(query)) &&
-                (_statusFilter == 'All' || status == _statusFilter);
-          }).toList();
+          final documents =
+              snapshot.data!.docs.where((document) {
+                final data = document.data();
+                final customer =
+                    data['customer'] as Map<String, dynamic>? ?? {};
+                final query = _searchQuery.trim().toLowerCase();
+                final searchable = [
+                  data['orderNumber'],
+                  customer['name'],
+                  customer['email'],
+                  customer['phone'],
+                ].whereType<String>().join(' ').toLowerCase();
+                final status = data['status'] as String? ?? 'pending';
+                final createdAt = _createdAt(data['createdAt']);
+                return (query.isEmpty || searchable.contains(query)) &&
+                    (_statusFilter == 'All' || status == _statusFilter) &&
+                    _matchesDateFilter(createdAt);
+              }).toList()..sort((a, b) {
+                final aDate = _createdAt(a.data()['createdAt']);
+                final bDate = _createdAt(b.data()['createdAt']);
+                final comparison = aDate.compareTo(bDate);
+                if (_sortFilter == 'Oldest first') return comparison;
+                if (_sortFilter == 'Total: low to high') {
+                  return _total(a).compareTo(_total(b));
+                }
+                if (_sortFilter == 'Total: high to low') {
+                  return _total(b).compareTo(_total(a));
+                }
+                return -comparison;
+              });
           if (documents.isEmpty) {
             return Column(
               children: [
@@ -242,7 +267,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
           const SizedBox(width: 12),
           SizedBox(
-            width: 150,
+            width: 160,
             child: DropdownButtonFormField<String>(
               initialValue: _statusFilter,
               decoration: const InputDecoration(labelText: 'Status'),
@@ -259,9 +284,75 @@ class _OrdersScreenState extends State<OrdersScreen> {
               },
             ),
           ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 170,
+            child: DropdownButtonFormField<String>(
+              initialValue: _sortFilter,
+              decoration: const InputDecoration(labelText: 'Sort'),
+              items: const [
+                DropdownMenuItem(
+                  value: 'Newest first',
+                  child: Text('Newest first'),
+                ),
+                DropdownMenuItem(
+                  value: 'Oldest first',
+                  child: Text('Oldest first'),
+                ),
+                DropdownMenuItem(
+                  value: 'Total: low to high',
+                  child: Text('Total: low to high'),
+                ),
+                DropdownMenuItem(
+                  value: 'Total: high to low',
+                  child: Text('Total: high to low'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _sortFilter = value);
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 155,
+            child: DropdownButtonFormField<String>(
+              initialValue: _dateFilter,
+              decoration: const InputDecoration(labelText: 'Date'),
+              items: _dateFilters
+                  .map(
+                    (filter) =>
+                        DropdownMenuItem(value: filter, child: Text(filter)),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _dateFilter = value);
+              },
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  DateTime _createdAt(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  bool _matchesDateFilter(DateTime createdAt) {
+    if (_dateFilter == 'All time') return true;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (_dateFilter == 'Today') return !createdAt.isBefore(today);
+    final days = _dateFilter == 'Last 7 days' ? 7 : 30;
+    return !createdAt.isBefore(now.subtract(Duration(days: days)));
+  }
+
+  num _total(QueryDocumentSnapshot<Map<String, dynamic>> document) {
+    final value = document.data()['totalPrice'];
+    return value is num ? value : 0;
   }
 
   String _formatItems(dynamic rawItems) {

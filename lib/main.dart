@@ -749,7 +749,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('categories')
-                .orderBy('order')
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
@@ -758,9 +757,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
+              final documents = [...snapshot.data!.docs]
+                ..sort(
+                  (a, b) => ((a.data()['order'] as num?) ?? 0).compareTo(
+                    (b.data()['order'] as num?) ?? 0,
+                  ),
+                );
               return ListView(
                 children: [
-                  for (final document in snapshot.data!.docs)
+                  for (final document in documents)
                     ListTile(
                       leading:
                           (document.data()['imageUrl'] as String? ?? '').isEmpty
@@ -801,7 +806,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                       ),
                     ),
-                  if (snapshot.data!.docs.isEmpty)
+                  if (documents.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(24),
                       child: Text('Add your first custom category.'),
@@ -821,9 +826,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.add),
             label: const Text('Add category'),
           ),
+          TextButton.icon(
+            onPressed: () => _syncProductCategories(context),
+            icon: const Icon(Icons.sync),
+            label: const Text('Sync from products'),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _syncProductCategories(BuildContext context) async {
+    final products = await FirebaseFirestore.instance
+        .collection('products')
+        .where('published', isEqualTo: true)
+        .get();
+    final categories = products.docs
+        .map((document) => document.data()['category'] as String?)
+        .whereType<String>()
+        .map((category) => category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet();
+    for (final category in categories) {
+      final existing = await FirebaseFirestore.instance
+          .collection('categories')
+          .where('name', isEqualTo: category)
+          .limit(1)
+          .get();
+      if (existing.docs.isEmpty) {
+        await FirebaseFirestore.instance.collection('categories').add({
+          'name': category,
+          'imageUrl': '',
+          'order': 0,
+          'published': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Synced ${categories.length} product categories.'),
+        ),
+      );
+    }
   }
 
   Future<void> _showCategoryForm(
@@ -981,6 +1027,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final imageUrl = TextEditingController(
       text: existing?['imageUrl'] as String? ?? '',
     );
+    final imageUrls =
+        (existing?['imageUrls'] as List?)?.whereType<String>().toList() ??
+        <String>[];
     var published = existing?['published'] == true;
     var isNew = existing?['isNew'] == true;
     var uploadingImage = false;
@@ -1022,6 +1071,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       labelText: 'Image URL (optional)',
                     ),
                   ),
+                  if (imageUrls.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${imageUrls.length} additional image(s) ready',
+                      ),
+                    ),
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -1080,6 +1136,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                   ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: uploadingImage
+                          ? null
+                          : () async {
+                              final selected = await ImagePicker().pickImage(
+                                source: ImageSource.gallery,
+                              );
+                              if (selected == null) return;
+                              setDialogState(() => uploadingImage = true);
+                              try {
+                                final bytes = await selected.readAsBytes();
+                                final extension = selected.name.contains('.')
+                                    ? selected.name.split('.').last
+                                    : 'jpg';
+                                final reference = FirebaseStorage.instance
+                                    .ref()
+                                    .child(
+                                      'product-images/${DateTime.now().millisecondsSinceEpoch}-${imageUrls.length}.$extension',
+                                    );
+                                await reference.putData(
+                                  bytes,
+                                  SettableMetadata(
+                                    contentType:
+                                        selected.mimeType ?? 'image/$extension',
+                                  ),
+                                );
+                                imageUrls.add(await reference.getDownloadURL());
+                              } on FirebaseException catch (error) {
+                                setDialogState(() {
+                                  imageError =
+                                      error.message ?? 'Image upload failed.';
+                                });
+                              } finally {
+                                if (context.mounted) {
+                                  setDialogState(() => uploadingImage = false);
+                                }
+                              }
+                            },
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      label: const Text('Add another product image'),
+                    ),
+                  ),
                   if (imageError != null)
                     Align(
                       alignment: Alignment.centerLeft,
@@ -1125,6 +1225,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   'price': parsedPrice,
                   'description': description.text.trim(),
                   'imageUrl': imageUrl.text.trim(),
+                  'imageUrls': imageUrls,
                   'published': published,
                   'isNew': isNew,
                   'updatedAt': FieldValue.serverTimestamp(),
@@ -1139,6 +1240,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   });
                 } else {
                   await collection.doc(id).update(data);
+                }
+                final categoryName = category.text.trim();
+                if (categoryName.isNotEmpty) {
+                  final categoryQuery = await FirebaseFirestore.instance
+                      .collection('categories')
+                      .where('name', isEqualTo: categoryName)
+                      .limit(1)
+                      .get();
+                  final categoryData = {
+                    'name': categoryName,
+                    'imageUrl': '',
+                    'published': true,
+                    'order': 0,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  };
+                  if (categoryQuery.docs.isEmpty) {
+                    await FirebaseFirestore.instance
+                        .collection('categories')
+                        .add({
+                          ...categoryData,
+                          'createdAt': FieldValue.serverTimestamp(),
+                        });
+                  }
                 }
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },

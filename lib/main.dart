@@ -168,7 +168,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               '${customer['email'] ?? ''}\n'
                               '${customer['phone'] ?? ''}\n\n'
                               'Delivery address:\n'
-                              '${address['street'] ?? ''}, '
+                              '${address['address'] ?? ''}, '
                               '${address['city'] ?? ''}, '
                               '${address['postalCode'] ?? ''}\n\n'
                               '${_formatItems(data['items'])}',

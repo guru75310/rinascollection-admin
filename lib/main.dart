@@ -229,13 +229,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             ],
                             onChanged: (value) {
                               if (value == null) return;
-                              FirebaseFirestore.instance
-                                  .collection('orders')
-                                  .doc(document.id)
-                                  .update({
-                                    'status': value,
-                                    'updatedAt': FieldValue.serverTimestamp(),
-                                  });
+                              _updateOrderStatus(document, customer, value);
                             },
                           ),
                         ],
@@ -250,6 +244,49 @@ class _OrdersScreenState extends State<OrdersScreen> {
       ),
     );
   }
+
+  Future<void> _updateOrderStatus(
+    QueryDocumentSnapshot<Map<String, dynamic>> document,
+    Map<String, dynamic> customer,
+    String status,
+  ) async {
+    final data = document.data();
+    final orderNumber = data['orderNumber'] as String? ?? document.id;
+    final email = customer['email'] as String?;
+    final batch = FirebaseFirestore.instance.batch();
+    batch.update(document.reference, {
+      'status': status,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (email != null && email.isNotEmpty) {
+      batch.set(FirebaseFirestore.instance.collection('mail').doc(), {
+        'to': email,
+        'orderId': document.id,
+        'customerId': data['customerId'],
+        'type': 'order_status',
+        'message': {
+          'subject': 'Order $orderNumber is ${_statusLabel(status)}',
+          'text': 'Your order $orderNumber is now ${_statusLabel(status)}.',
+          'html':
+              '<h2>Order update</h2>'
+              '<p>Your order <strong>$orderNumber</strong> is now '
+              '<strong>${_statusLabel(status)}</strong>.</p>',
+        },
+      });
+    }
+    try {
+      await batch.commit();
+    } on FirebaseException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'Unable to update order.')),
+        );
+      }
+    }
+  }
+
+  String _statusLabel(String status) =>
+      '${status[0].toUpperCase()}${status.substring(1)}';
 
   Widget _buildFilters() {
     return Padding(

@@ -34,5 +34,14 @@ service cloud.firestore {
       allow read, create, update: if signedIn() && request.auth.uid == userId;
       allow delete: if signedIn() && request.auth.uid == userId;
     }
+
+    match /mail/{mailId} {
+      allow create: if isAdmin()
+        || (signedIn()
+          && request.resource.data.type == 'order_created'
+          && request.resource.data.customerId == request.auth.uid
+          && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.customerId == request.auth.uid);
+      allow read, update, delete: if isAdmin();
+    }
   }
 }

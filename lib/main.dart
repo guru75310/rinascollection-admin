@@ -553,6 +553,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   String _searchQuery = '';
   String _statusFilter = 'All';
+  bool _syncingCategories = false;
 
   @override
   Widget build(BuildContext context) {
@@ -827,7 +828,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: const Text('Add category'),
           ),
           TextButton.icon(
-            onPressed: () => _syncProductCategories(context),
+            onPressed: _syncingCategories
+                ? null
+                : () => _syncProductCategories(context),
             icon: const Icon(Icons.sync),
             label: const Text('Sync from products'),
           ),
@@ -837,6 +840,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _syncProductCategories(BuildContext context) async {
+    setState(() => _syncingCategories = true);
     final products = await FirebaseFirestore.instance
         .collection('products')
         .where('published', isEqualTo: true)
@@ -847,13 +851,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         .map((category) => category.trim())
         .where((category) => category.isNotEmpty)
         .toSet();
+    final existing = await FirebaseFirestore.instance
+        .collection('categories')
+        .get();
+    final existingNames = <String>{};
+    for (final document in existing.docs) {
+      final name = (document.data()['name'] as String? ?? '')
+          .trim()
+          .toLowerCase();
+      if (name.isEmpty) continue;
+      if (!existingNames.add(name)) {
+        await document.reference.delete();
+      }
+    }
     for (final category in categories) {
-      final existing = await FirebaseFirestore.instance
-          .collection('categories')
-          .where('name', isEqualTo: category)
-          .limit(1)
-          .get();
-      if (existing.docs.isEmpty) {
+      if (!existingNames.contains(category.toLowerCase())) {
         await FirebaseFirestore.instance.collection('categories').add({
           'name': category,
           'imageUrl': '',
@@ -861,8 +873,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'published': true,
           'createdAt': FieldValue.serverTimestamp(),
         });
+        existingNames.add(category.toLowerCase());
       }
     }
+    if (mounted) setState(() => _syncingCategories = false);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

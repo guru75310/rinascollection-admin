@@ -566,6 +566,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('Product Dashboard'),
         actions: [
           IconButton(
+            tooltip: 'Categories',
+            onPressed: () => _showCategories(context),
+            icon: const Icon(Icons.category_outlined),
+          ),
+          IconButton(
             tooltip: 'Orders',
             onPressed: () => Navigator.push(
               context,
@@ -727,6 +732,233 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Product deleted.')));
     }
+  }
+
+  Future<void> _showCategories(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Manage categories'),
+        content: SizedBox(
+          width: 620,
+          height: 420,
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('categories')
+                .orderBy('order')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(child: Text('Unable to load categories.'));
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return ListView(
+                children: [
+                  for (final document in snapshot.data!.docs)
+                    ListTile(
+                      leading:
+                          (document.data()['imageUrl'] as String? ?? '').isEmpty
+                          ? const Icon(Icons.category_outlined)
+                          : Image.network(
+                              document.data()['imageUrl'] as String,
+                              width: 52,
+                              height: 52,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const Icon(Icons.broken_image_outlined),
+                            ),
+                      title: Text(document.data()['name'] as String? ?? ''),
+                      subtitle: Text(
+                        document.data()['published'] == true
+                            ? 'Published'
+                            : 'Unpublished',
+                      ),
+                      trailing: Wrap(
+                        children: [
+                          IconButton(
+                            tooltip: 'Edit',
+                            onPressed: () => _showCategoryForm(
+                              context,
+                              document.id,
+                              document.data(),
+                            ),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete',
+                            onPressed: () => FirebaseFirestore.instance
+                                .collection('categories')
+                                .doc(document.id)
+                                .delete(),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (snapshot.data!.docs.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('Add your first custom category.'),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () => _showCategoryForm(context),
+            icon: const Icon(Icons.add),
+            label: const Text('Add category'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showCategoryForm(
+    BuildContext context, [
+    String? id,
+    Map<String, dynamic>? existing,
+  ]) async {
+    final name = TextEditingController(text: existing?['name'] as String?);
+    final imageUrl = TextEditingController(
+      text: existing?['imageUrl'] as String? ?? '',
+    );
+    final order = TextEditingController(text: '${existing?['order'] ?? 0}');
+    var published = existing?['published'] != false;
+    var uploading = false;
+    String? error;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(id == null ? 'Add category' : 'Edit category'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Category name'),
+                ),
+                TextField(
+                  controller: order,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Display order'),
+                ),
+                TextField(
+                  controller: imageUrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Image URL (optional)',
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: uploading
+                        ? null
+                        : () async {
+                            final selected = await ImagePicker().pickImage(
+                              source: ImageSource.gallery,
+                            );
+                            if (selected == null) return;
+                            setState(() {
+                              uploading = true;
+                              error = null;
+                            });
+                            try {
+                              final bytes = await selected.readAsBytes();
+                              final extension = selected.name.contains('.')
+                                  ? selected.name.split('.').last
+                                  : 'jpg';
+                              final reference = FirebaseStorage.instance
+                                  .ref()
+                                  .child(
+                                    'category-images/${DateTime.now().millisecondsSinceEpoch}.$extension',
+                                  );
+                              await reference.putData(
+                                bytes,
+                                SettableMetadata(
+                                  contentType:
+                                      selected.mimeType ?? 'image/$extension',
+                                ),
+                              );
+                              imageUrl.text = await reference.getDownloadURL();
+                            } on FirebaseException catch (uploadError) {
+                              setState(
+                                () => error =
+                                    uploadError.message ?? 'Upload failed.',
+                              );
+                            } finally {
+                              setState(() => uploading = false);
+                            }
+                          },
+                    icon: uploading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.upload_file),
+                    label: Text(
+                      uploading ? 'Uploading...' : 'Upload tile image',
+                    ),
+                  ),
+                ),
+                if (error != null)
+                  Text(error!, style: TextStyle(color: Colors.red.shade700)),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Published'),
+                  value: published,
+                  onChanged: (value) => setState(() => published = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (name.text.trim().isEmpty) return;
+                final data = {
+                  'name': name.text.trim(),
+                  'imageUrl': imageUrl.text.trim(),
+                  'order': int.tryParse(order.text.trim()) ?? 0,
+                  'published': published,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                };
+                final collection = FirebaseFirestore.instance.collection(
+                  'categories',
+                );
+                if (id == null) {
+                  await collection.add({
+                    ...data,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                } else {
+                  await collection.doc(id).update(data);
+                }
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _showProductForm(

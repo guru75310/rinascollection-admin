@@ -17,6 +17,11 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /categories/{categoryId} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
     match /adminUsers/{userId} {
       allow get: if signedIn() && request.auth.uid == userId;
       allow list, create, update, delete: if false;

@@ -565,11 +565,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text('Product Dashboard'),
         actions: [
-          IconButton(
-            tooltip: 'Categories',
-            onPressed: () => _showCategories(context),
-            icon: const Icon(Icons.category_outlined),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: FilledButton.icon(
+              onPressed: () => _showCategories(context),
+              icon: const Icon(Icons.category_outlined),
+              label: const Text('Categories'),
+            ),
           ),
+          const SizedBox(width: 8),
           IconButton(
             tooltip: 'Orders',
             onPressed: () => Navigator.push(

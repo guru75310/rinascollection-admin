@@ -54,10 +54,7 @@ class _AdminGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser!;
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance
-          .collection('adminUsers')
-          .doc(user.uid)
-          .get(),
+      future: _loadAdminRecord(user),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return AccessDeniedScreen(
@@ -77,6 +74,16 @@ class _AdminGate extends StatelessWidget {
         return const DashboardScreen();
       },
     );
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _loadAdminRecord(
+    User user,
+  ) async {
+    await user.getIdToken(true);
+    return FirebaseFirestore.instance
+        .collection('adminUsers')
+        .doc(user.uid)
+        .get();
   }
 }
 
@@ -1127,9 +1134,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               });
                               try {
                                 final bytes = await selected.readAsBytes();
+                                if (bytes.length > 10 * 1024 * 1024) {
+                                  setDialogState(
+                                    () => imageError =
+                                        'Image is larger than 10 MB.',
+                                  );
+                                  return;
+                                }
                                 final extension = selected.name.contains('.')
                                     ? selected.name.split('.').last
                                     : 'jpg';
+                                final contentType = _imageContentType(
+                                  extension,
+                                );
                                 final fileName =
                                     '${DateTime.now().millisecondsSinceEpoch}.$extension';
                                 final reference = FirebaseStorage.instance
@@ -1137,10 +1154,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     .child('product-images/$fileName');
                                 await reference.putData(
                                   bytes,
-                                  SettableMetadata(
-                                    contentType:
-                                        selected.mimeType ?? 'image/$extension',
-                                  ),
+                                  SettableMetadata(contentType: contentType),
                                 );
                                 final url = await reference.getDownloadURL();
                                 imageUrl.text = url;
@@ -1180,9 +1194,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               setDialogState(() => uploadingImage = true);
                               try {
                                 final bytes = await selected.readAsBytes();
+                                if (bytes.length > 10 * 1024 * 1024) {
+                                  setDialogState(
+                                    () => imageError =
+                                        'Image is larger than 10 MB.',
+                                  );
+                                  return;
+                                }
                                 final extension = selected.name.contains('.')
                                     ? selected.name.split('.').last
                                     : 'jpg';
+                                final contentType = _imageContentType(
+                                  extension,
+                                );
                                 final reference = FirebaseStorage.instance
                                     .ref()
                                     .child(
@@ -1190,10 +1214,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     );
                                 await reference.putData(
                                   bytes,
-                                  SettableMetadata(
-                                    contentType:
-                                        selected.mimeType ?? 'image/$extension',
-                                  ),
+                                  SettableMetadata(contentType: contentType),
                                 );
                                 imageUrls.add(await reference.getDownloadURL());
                               } on FirebaseException catch (error) {
@@ -1303,5 +1324,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  String _imageContentType(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'heic':
+        return 'image/heic';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
+    }
   }
 }

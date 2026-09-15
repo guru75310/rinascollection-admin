@@ -627,6 +627,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           return Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                child: Card(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  child: ListTile(
+                    leading: const Icon(Icons.category_outlined),
+                    title: const Text('Manage category tiles'),
+                    subtitle: const Text(
+                      'Add categories and upload their tile images.',
+                    ),
+                    trailing: FilledButton(
+                      onPressed: () => _showCategories(context),
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              ),
               _buildFilters(),
               Expanded(
                 child: ListView.separated(
@@ -1130,7 +1147,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               } on FirebaseException catch (error) {
                                 setDialogState(() {
                                   imageError =
-                                      error.message ?? 'Image upload failed.';
+                                      '${error.code}: ${error.message ?? 'Image upload failed.'}';
                                 });
                               } finally {
                                 if (context.mounted) {
@@ -1182,7 +1199,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               } on FirebaseException catch (error) {
                                 setDialogState(() {
                                   imageError =
-                                      error.message ?? 'Image upload failed.';
+                                      '${error.code}: ${error.message ?? 'Image upload failed.'}';
                                 });
                               } finally {
                                 if (context.mounted) {

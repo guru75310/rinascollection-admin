@@ -246,6 +246,12 @@ exports.queueWelcomeEmailHttp = onRequest(async (request, response) => {
     if (!user.email) {
       throw new HttpsError('failed-precondition', 'An email address is required.');
     }
+    if (!user.emailVerified) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Verify your email address before requesting the welcome email.',
+      );
+    }
 
     const mailReference = db.collection('mail').doc(`welcome_${callerUid}`);
     let alreadyQueued = false;

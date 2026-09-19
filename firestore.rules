@@ -28,8 +28,7 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow create: if signedIn()
-        && request.resource.data.customerId == request.auth.uid;
+      allow create: if false;
       allow read: if isAdmin()
         || (signedIn() && resource.data.customerId == request.auth.uid);
       allow update, delete: if isAdmin();
@@ -41,11 +40,7 @@ service cloud.firestore {
     }
 
     match /mail/{mailId} {
-      allow create: if isAdmin()
-        || (signedIn()
-          && request.resource.data.type == 'order_created'
-          && request.resource.data.customerId == request.auth.uid
-          && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.customerId == request.auth.uid);
+      allow create: if isAdmin();
       allow read, update, delete: if isAdmin();
     }
   }

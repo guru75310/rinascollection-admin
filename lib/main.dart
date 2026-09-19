@@ -505,12 +505,26 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    "Rina's Collection",
-                    style: Theme.of(context).textTheme.headlineSmall,
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF9A4821),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Image.asset(
+                        'assets/branding/logo_transparent.png',
+                        height: 48,
+                        filterQuality: FilterQuality.high,
+                        semanticLabel: "Rina's Collection",
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text('Admin dashboard'),
+                  const SizedBox(height: 16),
+                  const Text('Admin dashboard', textAlign: TextAlign.center),
                   const SizedBox(height: 24),
                   TextField(
                     controller: _emailController,
@@ -571,7 +585,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Product Dashboard'),
+        titleSpacing: 16,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9A4821),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Image.asset(
+                'assets/branding/logo_transparent.png',
+                height: 28,
+                filterQuality: FilterQuality.high,
+                semanticLabel: "Rina's Collection",
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text('Product Dashboard'),
+          ],
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -606,6 +640,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
+          final allDocuments = snapshot.data!.docs;
+          final inventoryTotals = <String, int>{
+            for (final size in ['S', 'M', 'L', 'XL']) size: 0,
+          };
+          var managedProducts = 0;
+          var lowStockProducts = 0;
+          for (final document in allDocuments) {
+            final stock = _stockBySize(document.data()['stockBySize']);
+            if (stock.isEmpty) continue;
+            managedProducts++;
+            final total = stock.values.fold<int>(
+              0,
+              (total, value) => total + value,
+            );
+            if (total <= 2) lowStockProducts++;
+            for (final entry in stock.entries) {
+              inventoryTotals[entry.key] =
+                  (inventoryTotals[entry.key] ?? 0) + entry.value;
+            }
+          }
           final documents = snapshot.data!.docs.where((document) {
             final data = document.data();
             final name = (data['name'] as String? ?? '').toLowerCase();
@@ -634,6 +688,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           return Column(
             children: [
+              Card(
+                margin: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Wrap(
+                    spacing: 20,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.inventory_2_outlined),
+                          SizedBox(width: 8),
+                          Text(
+                            'Inventory',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      Text('Managed products: $managedProducts'),
+                      Text(
+                        'Low stock: $lowStockProducts',
+                        style: TextStyle(
+                          color: lowStockProducts > 0
+                              ? Colors.orange.shade800
+                              : null,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      for (final size in ['S', 'M', 'L', 'XL'])
+                        Chip(label: Text('$size: ${inventoryTotals[size]}')),
+                    ],
+                  ),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
                 child: Card(
@@ -661,6 +751,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     final document = documents[index];
                     final data = document.data();
                     final imageUrl = data['imageUrl'] as String? ?? '';
+                    final stockBySize = _stockBySize(data['stockBySize']);
+                    final stock = stockBySize.values.fold<int>(
+                      0,
+                      (total, value) => total + value,
+                    );
                     return Card(
                       child: ListTile(
                         leading: imageUrl.isEmpty
@@ -676,8 +771,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         title: Text(
                           data['name'] as String? ?? 'Unnamed product',
                         ),
+                        isThreeLine: true,
                         subtitle: Text(
-                          '${data['category'] ?? 'Uncategorized'} • €${data['price'] ?? 0}',
+                          '${data['category'] ?? 'Uncategorized'} • €${data['price'] ?? 0}\n'
+                          '${stockBySize.isEmpty ? 'Inventory not configured' : _stockLabel(stockBySize)}',
+                          style: TextStyle(
+                            color: stock > 0 && stock <= 2
+                                ? Colors.orange.shade800
+                                : null,
+                            fontWeight: stock > 0 && stock <= 2
+                                ? FontWeight.bold
+                                : null,
+                          ),
                         ),
                         trailing: Wrap(
                           children: [
@@ -715,6 +820,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
         label: const Text('Add product'),
       ),
     );
+  }
+
+  Map<String, int> _stockBySize(dynamic value) {
+    if (value is! Map) return {};
+    return value.map(
+      (key, quantity) =>
+          MapEntry(key.toString(), quantity is num ? quantity.toInt() : 0),
+    );
+  }
+
+  String _stockLabel(Map<String, int> stock) {
+    return [
+      'S',
+      'M',
+      'L',
+      'XL',
+    ].map((size) => '$size: ${stock[size] ?? 0}').join('  •  ');
   }
 
   Widget _buildFilters() {
@@ -1068,6 +1190,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final imageUrls =
         (existing?['imageUrls'] as List?)?.whereType<String>().toList() ??
         <String>[];
+    final stockBySize = <String, int>{
+      for (final size in ['S', 'M', 'L', 'XL'])
+        size: ((existing?['stockBySize'] as Map?)?[size] as num?)?.toInt() ?? 0,
+    };
+    final stockControllers = {
+      for (final size in stockBySize.keys)
+        size: TextEditingController(text: '${stockBySize[size]}'),
+    };
     var published = existing?['published'] == true;
     var isNew = existing?['isNew'] == true;
     var uploadingImage = false;
@@ -1086,6 +1216,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   TextField(
                     controller: name,
                     decoration: const InputDecoration(labelText: 'Name'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Stock by size',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      for (final size in stockControllers.keys)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: TextField(
+                              controller: stockControllers[size],
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(labelText: size),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   TextField(
                     controller: category,
@@ -1278,6 +1431,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   'description': description.text.trim(),
                   'imageUrl': imageUrl.text.trim(),
                   'imageUrls': imageUrls,
+                  'stockBySize': {
+                    for (final entry in stockControllers.entries)
+                      entry.key: int.tryParse(entry.value.text.trim()) ?? 0,
+                  },
                   'published': published,
                   'isNew': isNew,
                   'updatedAt': FieldValue.serverTimestamp(),

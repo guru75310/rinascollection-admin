@@ -1,4 +1,4 @@
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 
@@ -29,30 +29,7 @@ function requireFiniteNumber(value, field) {
   return value;
 }
 
-exports.placeOrder = onCall(async (request) => {
-  const input = request.data || {};
-  let callerUid = request.auth && request.auth.uid;
-  if (!callerUid && typeof input.idToken === 'string' && input.idToken.length > 0) {
-    try {
-      const verifiedToken = await admin.auth().verifyIdToken(input.idToken);
-      callerUid = verifiedToken.uid;
-    } catch (error) {
-      console.error('Explicit customer token verification failed.', error);
-      throw new HttpsError(
-        'unauthenticated',
-        'The Firebase customer token was rejected by the order service.',
-      );
-    }
-  }
-  if (!callerUid) {
-    throw new HttpsError(
-      'unauthenticated',
-      input.idToken
-        ? 'The order service could not identify the signed-in customer.'
-        : 'The app did not send a Firebase customer token. Fully restart the app.',
-    );
-  }
-
+async function processOrder(input, callerUid) {
   const orderId = requireString(input.orderId, 'orderId');
   const customer = input.customer;
   const shippingAddress = input.shippingAddress;
@@ -194,4 +171,54 @@ exports.placeOrder = onCall(async (request) => {
   });
 
   return result;
+}
+
+async function verifyToken(token) {
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new HttpsError('unauthenticated', 'A Firebase customer token is required.');
+  }
+  try {
+    return (await admin.auth().verifyIdToken(token)).uid;
+  } catch (error) {
+    console.error('Customer token verification failed.', error);
+    throw new HttpsError('unauthenticated', 'The Firebase customer token was rejected.');
+  }
+}
+
+exports.placeOrder = onCall(async (request) => {
+  const input = request.data || {};
+  const callerUid = request.auth?.uid || await verifyToken(input.idToken);
+  return processOrder(input, callerUid);
+});
+
+exports.placeOrderHttp = onRequest(async (request, response) => {
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+  if (request.method !== 'POST') {
+    response.status(405).json({ error: 'POST is required.' });
+    return;
+  }
+  try {
+    const authorization = request.get('Authorization') || '';
+    const token = authorization.startsWith('Bearer ')
+      ? authorization.substring('Bearer '.length)
+      : '';
+    const callerUid = await verifyToken(token);
+    const result = await processOrder(request.body || {}, callerUid);
+    response.status(200).json(result);
+  } catch (error) {
+    const code = error instanceof HttpsError ? error.code : 'internal';
+    const message = error instanceof HttpsError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : 'Unable to place the order.';
+    console.error('HTTP order placement failed.', error);
+    response.status(code === 'unauthenticated' ? 401 : 400).json({ code, message });
+  }
 });

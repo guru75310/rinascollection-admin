@@ -222,3 +222,60 @@ exports.placeOrderHttp = onRequest(async (request, response) => {
     response.status(code === 'unauthenticated' ? 401 : 400).json({ code, message });
   }
 });
+
+exports.queueWelcomeEmailHttp = onRequest(async (request, response) => {
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+  if (request.method !== 'POST') {
+    response.status(405).json({ error: 'POST is required.' });
+    return;
+  }
+
+  try {
+    const authorization = request.get('Authorization') || '';
+    const token = authorization.startsWith('Bearer ')
+      ? authorization.substring('Bearer '.length)
+      : '';
+    const callerUid = await verifyToken(token);
+    const user = await admin.auth().getUser(callerUid);
+    if (!user.email) {
+      throw new HttpsError('failed-precondition', 'An email address is required.');
+    }
+
+    const mailReference = db.collection('mail').doc(`welcome_${callerUid}`);
+    let alreadyQueued = false;
+    await db.runTransaction(async (transaction) => {
+      const existingMail = await transaction.get(mailReference);
+      if (existingMail.exists) {
+        alreadyQueued = true;
+        return;
+      }
+      transaction.set(mailReference, {
+        to: user.email,
+        customerId: callerUid,
+        type: 'welcome',
+        message: {
+          subject: 'Welcome to Rina’s Collection',
+          text: 'You are signed in with Rina’s Collection. Happy shopping!',
+          html: '<h2>Welcome to Rina’s Collection</h2>'
+            + '<p>You are signed in with Rina’s Collection. Happy shopping!</p>',
+        },
+      });
+    });
+    response.status(200).json({ alreadyQueued });
+  } catch (error) {
+    const code = error instanceof HttpsError ? error.code : 'internal';
+    const message = error instanceof HttpsError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : 'Unable to queue the welcome email.';
+    console.error('Welcome email queue failed.', error);
+    response.status(code === 'unauthenticated' ? 401 : 400).json({ code, message });
+  }
+});

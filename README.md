@@ -1,4 +1,4 @@
-# Rina's Collection Admin
+# Rinna's Collection Admin
 
 Firebase-backed Flutter Web admin portal for managing products, images,
 publishing, and customer orders.

@@ -20,7 +20,7 @@ class RinaAdminApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: "Rina's Collection Admin",
+      title: "Rinna's Collection Admin",
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7B3F51)),
         useMaterial3: true,
@@ -519,7 +519,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         'assets/branding/logo_transparent.png',
                         height: 48,
                         filterQuality: FilterQuality.high,
-                        semanticLabel: "Rina's Collection",
+                        semanticLabel: "Rinna's Collection",
                       ),
                     ),
                   ),
@@ -599,7 +599,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 'assets/branding/logo_transparent.png',
                 height: 28,
                 filterQuality: FilterQuality.high,
-                semanticLabel: "Rina's Collection",
+                semanticLabel: "Rinna's Collection",
               ),
             ),
             const SizedBox(width: 12),

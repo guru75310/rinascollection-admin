@@ -1,5 +1,8 @@
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { setGlobalOptions } = require('firebase-functions/v2');
+const { onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { v2: translateV2 } = require('@google-cloud/translate');
+const crypto = require('crypto');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
@@ -284,4 +287,35 @@ exports.queueWelcomeEmailHttp = onRequest(async (request, response) => {
     console.error('Welcome email queue failed.', error);
     response.status(code === 'unauthenticated' ? 401 : 400).json({ code, message });
   }
+});
+
+const translationLanguages = ['it', 'fr', 'de', 'es', 'pt'];
+
+// Keeps products/{id}.translations in sync with the English name,
+// description and category entered in the admin app.
+exports.translateProduct = onDocumentWritten('products/{productId}', async (event) => {
+  const after = event.data && event.data.after;
+  if (!after || !after.exists) return;
+  const data = after.data();
+  const source = {
+    name: String(data.name || ''),
+    description: String(data.description || ''),
+    category: String(data.category || ''),
+  };
+  const hash = crypto.createHash('sha1').update(JSON.stringify(source)).digest('hex');
+  if (data.translationsHash === hash) return;
+
+  const client = new translateV2.Translate();
+  const fields = Object.keys(source);
+  const translations = {};
+  for (const lang of translationLanguages) {
+    const [result] = await client.translate(fields.map((f) => source[f]), {
+      from: 'en',
+      to: lang,
+      format: 'text',
+    });
+    const list = Array.isArray(result) ? result : [result];
+    translations[lang] = Object.fromEntries(fields.map((f, i) => [f, list[i]]));
+  }
+  await after.ref.update({ translations, translationsHash: hash });
 });
